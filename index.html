@@ -1,0 +1,1155 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rainbow Six Siege Weapon Statistics</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Pretendard', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background-color: #0b0f19;
+      color: #f3f4f6;
+      background-image:
+        radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.05) 0%, transparent 40%),
+        radial-gradient(circle at 85% 20%, rgba(244, 63, 94, 0.05) 0%, transparent 40%);
+    }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #0f172a; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    .tactical-grid {
+      background-size: 24px 24px;
+      background-image: linear-gradient(to right, rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                        linear-gradient(to bottom, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    }
+    .sort-header { cursor: pointer; user-select: none; transition: color 0.15s; }
+    .sort-header:hover { color: #38bdf8; }
+    .op-group-end { border-bottom: 2px solid #334155 !important; }
+  </style>
+</head>
+<body class="min-h-screen font-sans antialiased tactical-grid selection:bg-sky-500/30 selection:text-sky-200">
+
+  <!-- 상단 네비게이션 바 -->
+  <header class="sticky top-0 z-40 border-b border-[#1e293b] bg-[#0b0f19]/90 backdrop-blur-md">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-gradient-to-br from-[#38bdf8] to-[#f43f5e] p-[1.5px] shadow-lg shadow-sky-500/10 shrink-0">
+          <div class="w-full h-full bg-[#0b0f19] rounded-[6.5px] flex items-center justify-center font-mono font-extrabold text-sm tracking-tighter text-white">
+            R6S
+          </div>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <h1 class="text-base sm:text-lg font-bold tracking-tight text-white">Rainbow Six Siege Weapon Statistics</h1>
+          <span id="syncStatusBadge" class="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-slate-800/90 text-slate-300 border border-slate-700">
+            <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+            <span>시트 동기화 중...</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button onclick="fetchAllSheets(true)" title="구글 시트 최신 데이터 다시 불러오기" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#131b2e] hover:bg-slate-800 text-slate-200 border border-[#1e293b] transition">
+          <svg id="refreshIcon" class="w-3.5 h-3.5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+          <span>새로고침</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 토스트 알림 컨테이너 -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+    <!-- 상단 섹션: 실시간 시뮬레이터 & 무기 1:1 비교 -->
+    <section class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- 좌측 (6칸): 실시간 DPS / TTK 시뮬레이터 -->
+      <div class="lg:col-span-6 bg-[#131b2e]/95 border border-[#1e293b] rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+        <div>
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-[#38bdf8] animate-pulse"></span>
+              <h2 class="text-base font-bold text-white">실시간 DPS / TTK 시뮬레이터</h2>
+              <span id="simWeaponBadge" class="hidden px-2 py-0.5 rounded text-[11px] font-bold bg-sky-500/20 text-[#38bdf8] border border-sky-500/30"></span>
+            </div>
+            <button onclick="resetCalculator()" class="text-xs text-slate-400 hover:text-white underline underline-offset-2">초기화</button>
+          </div>
+
+          <!-- 데미지 / 연사력 입력 -->
+          <div class="grid grid-cols-2 gap-3 mb-3">
+            <div class="bg-[#0b0f19]/90 border border-[#1e293b] rounded-xl p-3 focus-within:border-[#38bdf8] transition">
+              <label class="block text-xs font-medium text-slate-400 mb-1">기본 데미지 (DMG)</label>
+              <div class="flex items-center gap-2">
+                <input type="number" id="calcDmg" value="40" min="1" max="500" oninput="clearSimBadge(); runCalculator(); runVsCompare();"
+                  class="w-full bg-transparent font-mono text-xl font-bold text-white focus:outline-none" />
+                <span class="text-xs font-mono text-slate-500">HP</span>
+              </div>
+            </div>
+            <div class="bg-[#0b0f19]/90 border border-[#1e293b] rounded-xl p-3 focus-within:border-[#38bdf8] transition">
+              <label class="block text-xs font-medium text-slate-400 mb-1">연사력 (RPM)</label>
+              <div class="flex items-center gap-2">
+                <input type="number" id="calcRpm" value="850" min="1" max="2000" oninput="clearSimBadge(); runCalculator();"
+                  class="w-full bg-transparent font-mono text-xl font-bold text-white focus:outline-none" />
+                <span class="text-xs font-mono text-slate-500">발/분</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 부착물 / 방탄판 체크박스 -->
+          <div class="grid grid-cols-2 gap-3 mb-4">
+            <label class="cursor-pointer bg-[#0b0f19]/90 border border-[#1e293b] hover:border-slate-700 rounded-xl p-3 flex items-center justify-between select-none transition">
+              <div>
+                <div class="text-xs font-bold text-slate-200">연장총열</div>
+                <div class="text-[11px] font-mono text-[#38bdf8]">+12% DMG</div>
+              </div>
+              <input type="checkbox" id="chkExtBarrel" onchange="handleModifierChange()" class="w-4 h-4 rounded text-[#38bdf8] focus:ring-0 bg-slate-900 border-slate-600">
+            </label>
+            <label class="cursor-pointer bg-[#0b0f19]/90 border border-[#1e293b] hover:border-slate-700 rounded-xl p-3 flex items-center justify-between select-none transition">
+              <div>
+                <div class="text-xs font-bold text-slate-200">ROOK 방탄판</div>
+                <div class="text-[11px] font-mono text-[#facc15]">+20 HP</div>
+              </div>
+              <input type="checkbox" id="chkRookArmor" onchange="handleModifierChange()" class="w-4 h-4 rounded text-[#facc15] focus:ring-0 bg-slate-900 border-slate-600">
+            </label>
+          </div>
+        </div>
+
+        <!-- 계산 결과 요약 -->
+        <div>
+          <div class="flex items-center justify-between bg-[#0b0f19]/90 border border-[#1e293b] rounded-xl px-4 py-3 mb-3">
+            <div>
+              <span class="text-xs text-slate-400">최종 적용 데미지</span>
+              <div id="resFinalDmg" class="font-mono text-lg font-bold text-[#38bdf8]">40</div>
+            </div>
+            <div class="h-8 w-[1px] bg-[#1e293b]"></div>
+            <div class="text-right">
+              <span class="text-xs text-slate-400">초당 데미지 (DPS)</span>
+              <div id="resDps" class="font-mono text-2xl font-extrabold text-white">566.7</div>
+            </div>
+          </div>
+
+          <!-- 1, 2, 3 아머별 TTK 카드 -->
+          <div class="grid grid-cols-3 gap-2.5" id="calcArmorCards"></div>
+        </div>
+      </div>
+
+      <!-- 우측 (6칸): 무기 1:1 비교 -->
+      <div class="lg:col-span-6 bg-[#131b2e]/95 border border-[#1e293b] rounded-2xl p-5 shadow-xl flex flex-col justify-between">
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-[#f43f5e]"></span>
+              <h2 class="text-base font-bold text-white">무기 1:1 비교</h2>
+            </div>
+
+            <!-- 공격 / 수비 필터 체크박스 -->
+            <div class="flex items-center gap-3 bg-[#0b0f19]/90 px-3 py-1.5 rounded-lg border border-[#1e293b]">
+              <label class="cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold text-[#38bdf8] select-none">
+                <input type="checkbox" id="vsFilterAtk" checked onchange="handleVsFilterChange()" class="rounded text-[#38bdf8] focus:ring-0 bg-slate-900 border-slate-600">
+                <span>공격</span>
+              </label>
+              <span class="text-slate-700">|</span>
+              <label class="cursor-pointer inline-flex items-center gap-1.5 text-xs font-semibold text-[#f43f5e] select-none">
+                <input type="checkbox" id="vsFilterDef" checked onchange="handleVsFilterChange()" class="rounded text-[#f43f5e] focus:ring-0 bg-slate-900 border-slate-600">
+                <span>수비</span>
+              </label>
+            </div>
+          </div>
+
+          <!-- 무기 선택 드롭다운 (VS 배지 포함) -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-end gap-2.5 mb-4">
+            <div class="flex-1">
+              <label class="block text-[11px] font-semibold text-[#38bdf8] mb-1.5">무기 A (기준)</label>
+              <select id="vsSelectA" onchange="runVsCompare()" class="w-full bg-[#0b0f19] border border-[#1e293b] rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold text-white focus:outline-none focus:border-[#38bdf8]">
+              </select>
+            </div>
+            <div class="flex items-center justify-center sm:pb-1.5">
+              <span class="px-2 py-1 rounded bg-[#1e293b] text-[11px] font-mono font-extrabold text-slate-400">VS</span>
+            </div>
+            <div class="flex-1">
+              <label class="block text-[11px] font-semibold text-[#f43f5e] mb-1.5">무기 B (비교 대상)</label>
+              <select id="vsSelectB" onchange="runVsCompare()" class="w-full bg-[#0b0f19] border border-[#1e293b] rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold text-white focus:outline-none focus:border-[#f43f5e]">
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- VS 스탯 비교 테이블 -->
+        <div id="vsResultContainer" class="bg-[#0b0f19]/90 border border-[#1e293b] rounded-xl overflow-hidden"></div>
+      </div>
+
+    </section>
+
+    <!-- 하단 섹션: 통합 무기 데이터베이스 -->
+    <section class="bg-[#131b2e]/95 border border-[#1e293b] rounded-2xl shadow-xl overflow-hidden">
+
+      <!-- 탭 & 검색 필터 컨트롤 바 -->
+      <div class="p-4 sm:p-5 border-b border-[#1e293b] flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <!-- 진영 카테고리 탭: 전체보기 -> 공격 (Attack) -> 수비 (Defense) -->
+        <div class="flex flex-wrap items-center gap-1.5 bg-[#0b0f19] p-1 rounded-xl border border-[#1e293b]">
+          <button onclick="setTab('ALL')" id="tab-ALL" class="tab-btn px-4 py-1.5 rounded-lg text-xs font-bold transition">
+            전체보기
+          </button>
+          <button onclick="setTab('ATK')" id="tab-ATK" class="tab-btn px-4 py-1.5 rounded-lg text-xs font-bold transition">
+            공격 (Attack)
+          </button>
+          <button onclick="setTab('DEF')" id="tab-DEF" class="tab-btn px-4 py-1.5 rounded-lg text-xs font-bold transition">
+            수비 (Defense)
+          </button>
+        </div>
+
+        <!-- 정렬 및 검색 -->
+        <div class="flex flex-wrap items-center gap-2.5">
+          <select id="sortSelect" onchange="handleSortSelect(this.value)" class="bg-[#0b0f19] border border-[#1e293b] focus:border-[#38bdf8] rounded-xl px-3 py-2 text-xs font-semibold text-slate-200 focus:outline-none">
+            <option value="default">정렬: 시트 기본순</option>
+            <option value="name_asc">무기명 (A-Z)</option>
+            <option value="dps_desc">DPS 높은순</option>
+            <option value="dmg_desc">데미지 높은순</option>
+          </select>
+
+          <div class="relative flex-1 sm:w-64">
+            <input type="text" id="searchInput" oninput="renderTable()" placeholder="오퍼레이터 또는 총기명 검색..."
+              class="w-full bg-[#0b0f19] border border-[#1e293b] focus:border-[#38bdf8] rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none" />
+            <svg class="w-4 h-4 text-slate-500 absolute left-3 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- 범례 안내 바 -->
+      <div class="px-5 py-2.5 bg-[#0b0f19]/60 border-b border-[#1e293b] flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+        <div class="flex flex-wrap items-center gap-4">
+          <span class="flex items-center gap-1.5"><span class="px-1.5 py-0.2 rounded bg-amber-500/20 text-[#facc15] border border-amber-500/40 font-mono text-[10px]">부상</span> 목표 HP ~ +19 구간 DBNO(부상) 발생</span>
+          <span>* 아머 기준: 1아머(100HP) / 2아머(110HP) / 3아머(125HP)</span>
+        </div>
+        <div class="text-slate-500">
+          행 우측 버튼으로 <span class="text-[#facc15] font-semibold">[ROOK]</span> 적용 또는 <span class="text-[#38bdf8] font-semibold">[A]</span> <span class="text-[#f43f5e] font-semibold">[B]</span> 비교
+        </div>
+      </div>
+
+      <!-- 메인 무기 데이터 테이블 뷰 -->
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="border-b border-[#1e293b] bg-[#0b0f19]/90 text-[11px] font-bold uppercase tracking-wider text-slate-400">
+              <th class="py-3.5 px-4 w-20 text-center">진영</th>
+              <th class="py-3.5 px-4 w-32 text-center">오퍼레이터</th>
+              <th class="py-3.5 px-4 sort-header" onclick="toggleSort('name')">무기명 <span id="sort-name"></span></th>
+              <th class="py-3.5 px-3 text-right sort-header" onclick="toggleSort('dmg')">데미지 <span id="sort-dmg"></span></th>
+              <th class="py-3.5 px-3 text-right sort-header" onclick="toggleSort('rpm')">연사력 <span id="sort-rpm"></span></th>
+              <th class="py-3.5 px-3 text-right sort-header" onclick="toggleSort('dps')">DPS <span id="sort-dps"></span></th>
+              <th class="py-3.5 px-3 text-center sort-header text-[#38bdf8]" onclick="toggleSort('ttk1')">1아머 (100HP) <span id="sort-ttk1"></span></th>
+              <th class="py-3.5 px-3 text-center sort-header text-emerald-400" onclick="toggleSort('ttk2')">2아머 (110HP) <span id="sort-ttk2"></span></th>
+              <th class="py-3.5 px-3 text-center sort-header text-[#f43f5e]" onclick="toggleSort('ttk3')">3아머 (125HP) <span id="sort-ttk3"></span></th>
+              <th class="py-3.5 px-4 text-center">빠른 실행</th>
+            </tr>
+          </thead>
+          <tbody id="weaponTableBody" class="divide-y divide-[#1e293b]/70 text-xs sm:text-sm"></tbody>
+        </table>
+      </div>
+
+    </section>
+
+  </main>
+
+  <script>
+    // =========================================================================
+    // 1. Google Sheets 웹 게시 CSV URL
+    // =========================================================================
+    const ATTACK_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQrP0YpTHSQjKynakKjNE5eI5aRnkZN6zJEgCHUkc3NlkJUZKxxJmPBk1rBi4amqxm1yKQgjwr8gDUq/pub?gid=0&single=true&output=csv";
+    const DEFENSE_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQrP0YpTHSQjKynakKjNE5eI5aRnkZN6zJEgCHUkc3NlkJUZKxxJmPBk1rBi4amqxm1yKQgjwr8gDUq/pub?gid=1188668821&single=true&output=csv";
+
+    // =========================================================================
+    // 2. 공격 39명 & 수비 39명 오퍼레이터 공식 순서 및 아이콘 매핑
+    // =========================================================================
+    const ATTACK_OPERATORS = [
+      { name: "STRIKER", img: "https://i.namu.wiki/i/JtEkW-33UoL4h0f8N1WQr2b9aQrcUKCa12GG-RPWVTpAVoHCj4b4PHQFE_e0_Y0omtizbS_zvZ9Xo4XRK94pPQ.webp", guns: ["M4", "M249", "SR-25"] },
+      { name: "SLEDGE", img: "https://i.namu.wiki/i/MSVTtAwzYBrrgB_JgKsZqfnXmP82qHh1wpEwhWGaCZ4gD9GTu8G9OwKoH20XbHmX9fdG2xoqTtsgI5R9UfS0gsEXmQ5DTwNLDfY16c9y6NxqALoEpEWBzb_FgEUWLaAKM5lBA2mnjlJntii7muUSSg.webp", guns: ["M590A1", "L85A2"] },
+      { name: "THATCHER", img: "https://i.namu.wiki/i/Ek6see6FGv5R0Zlu0ZPZ8_UZjzZLS39K_-38O9WuKmzJj6hlReesaTUrDE7pgVjlDSL0vZUPGG0YBSh38ipe7zy0QPdXa2d-KL1AXUPsbO5lS8IoW8snWpLWNCVkH7r3BYRlBA35UzaZdxMCh_b4CQ.webp", guns: ["AR33", "L85A2", "M590A1", "PMR90A2"] },
+      { name: "ASH", img: "https://i.namu.wiki/i/nMjvDr5AG6tb86-i-kZ3ZyDdI-qsN1CJ5lNlfB8iDJwSnJjmCni6pYaUXrqCZOrDx611OB2ndJRh_EjdyxpFyQ0T6qeSRsIN0gDQX-enQSgfS4VMytRxdP3DyD_KJTHgh7YczE_s0OnAuUWUG3ZhjQ.webp", guns: ["G36C", "R4-C"] },
+      { name: "THERMITE", img: "https://i.namu.wiki/i/0umbU9TFw7lJxaONype-zW9DMmwnZuh4_-n-IllCsVo0v4V7pf7U3l5RhE4ccsZJvA5rhNuaUzztHx0L7BUFKOpbv1Z9CB_4cUN60oOLdmJx5J7kcK3zvWRAbMK6mh1yThF7nAVFdeSlSxmUpPEgog.webp", guns: ["M1014", "556XI"] },
+      { name: "TWITCH", img: "https://i.namu.wiki/i/_EyU_7LDdJxoYmBVszchVFrBC077mJ6yZrBwz8Ih0Fda2sdJgo_D3XjMmURCDbxncjSCOH4pOXvdTMb4oZUOE6JnlRGTTbbneTf3fqBfhEhhlPLroDY_HIfybSGUJGvXfVVdpqxD9f6Mh5ltmiNPLA.webp", guns: ["F2", "417", "SG-CQB"] },
+      { name: "MONTAGNE", img: "https://i.namu.wiki/i/0wS-t1wU3wO9f-t6X1kL6m7F0L0l5uN4_8gX5hY8z1A2b3C4d5E6f7G8h9I0j1K2l3M4n5O6p7Q8r9S0t1U2v3W4x5Y6z.webp", guns: ["P9", "LFP586"] },
+      { name: "GLAZ", img: "https://i.namu.wiki/i/uVx67ST7QBuhFWaHYTofdMiszpBgskIzd3SAXbZJXSd3NqzhZeIjB4JovXpKaSijpcuSn-m-LdGZkqwZ7riI7fGxt9riUS4RN43Q8XGRq1c9v7C9jqpQLL4EvV4ttHzvwzwy1t4DoiHmPRxgawME0Q.webp", guns: ["OTS-03"] },
+      { name: "FUZE", img: "https://i.namu.wiki/i/gInw0mO0SBFpewuUxqPmEcXVo-PNHOAZqgz8Qy8b1N2GE2LEr7SUrX5cclH87p4oKwzmKbVOg1hCUfbDXBPbvk6Ek3sVEDXpFgIgdsKVEGYmu8ZoqGH4TNbFABWzBUVWPR5plw5TxLhZ6AtUDwLiQA.webp", guns: ["6P41", "AK-12"] },
+      { name: "BLITZ", img: "https://i.namu.wiki/i/eqWg9NskJR-sy1ZPrshjbnE5LP1S04GstazcBpijwbIXUiabgQnzVUPZ4VefKz6e_32L9tO49lPO4jPSwozGl9ZuB6hCFYMFDVP4ogj4Hv6DUd7sYTbjcxIaCbkjmSQO5dnWJNtnp2zW6q3Wi6AW3g.webp", guns: ["P12", "P-12"] },
+      { name: "IQ", img: "https://i.namu.wiki/i/_N706DkVkGDGHw3J05FOGvhdJEnWMLGwjCpBkH61UAmZn_80g0b6RecrH6PUb9o1zhfsT_pIDbw8i2E9fWvU-5GjUPzTFWkLyRKa621ys6s_Y4qNDDMPPJUjCPTnJmQtA7eh1nkWf8j5LSM_v5qEQw.webp", guns: ["AUG A2", "552 COMMANDO", "G8A1"] },
+      { name: "BUCK", img: "https://i.namu.wiki/i/t79_5--oexTSK2ioKcp5O5TBKgLqOqzNI0BBxpFGdJ4_8W4RvcqJzSXCD77M5SG42-HUWUPl2-_ifx7bDn6ve8I-FKX2dNDtNbxlpyGaeTt2EorDBKZ5IeNqmkiex_g7d6FsHOdUlxHaoDCv2Iumlw.webp", guns: ["C8-SFW", "CAMRS", "CARMS"] },
+      { name: "BLACKBEARD", img: "https://i.namu.wiki/i/aeWZfun1xNbVcKOUEbugCH-yMIgrn6wYPg-XaDLjkUEhklzcxvjypQALEZ1YWuf-8aBoM1pCRX3LuqGwi_IiTSbEYRxXXl1DwYg9eyhNWc93PfzBBJJ7sEmKF0jU7G8HWUma-vVX3TfPCZnA4bKxwQ.webp", guns: ["MK17 CQB", "SR-25"] },
+      { name: "CAPITÃO", img: "https://i.namu.wiki/i/UTgZrpzJoaG11LX17IiBLDc20nSo7I-Oocl6szOMCkuQRpflOXDe6-GhxTlBAOTcFsp7w_L68WOGxmMapoafZjyDsmMSzB1h4pN5TbxvpLa8yJDgAM-tXalJ--MfHdClV4NfJQRCsEUivSwDy6i7Ug.webp", guns: ["PARA-308", "M249"] },
+      { name: "HIBANA", img: "https://i.namu.wiki/i/c9j7gFMn-UfYeYJLPqRKOFXU2tqz__hxnKL-UOOvzOFZqEYGyqSHypZEi2L0ADt2eo7VjHwyEPDZKsV3ERHNczevC5gYnyoN9DsqQso5wUXZy9Jz_QODP4rVxp71XpWc0GRwm6VmP4ehNptS5iKbdw.webp", guns: ["TYPE-89", "SUPERNOVA"] },
+      { name: "JACKAL", img: "https://i.namu.wiki/i/YZoD6kOfPfdrrae3pBQ5YMfk_DGSDWkWnxyObizuz9Hsy3hUznHHE_Q5ifsF7xUYd-WHvjYFQjGOSSjtOo3l51cZJr2bIP3mNlEs0KfnANOaFxAEnU0PBkiUmaoKrsdwBfLhJilgPx33LsFGGhnfzA.webp", guns: ["C7E", "PDW9", "ITA12L"] },
+      { name: "YING", img: "https://i.namu.wiki/i/2O0WJjcwB5a9QByvN4DTwa0LpRLTKg030Yjo_OLz67BA_j1k7Dcu4l4AM1VVkzbCizbzudnm04AfaX4Nmhl33mElfVjRbbf1j0kaP269rnsT3THmkxW31FNW1J35KNxvOmrCoeSi6wmLzIVT97W82w.webp", guns: ["T-95 LSW", "SIX12"] },
+      { name: "ZOFIA", img: "https://i.namu.wiki/i/s-3Ph_09yWxWJXn6AM-BThenTIi2Ko60j6gXYPMO-48M3l9Pk2QE7m00ERpy-FITnk2cWcYNpGXxiKJ7tv8Kckc9QwHkZRk6KvCDgGXG8dQTycj3-ALUVpfN0eW5AhpWmHcVtC22DONF5FX4XmXdcg.webp", guns: ["LMG-E", "M762"] },
+      { name: "DOKKAEBI", img: "https://i.namu.wiki/i/I944U3p5jJTzuc-8N-BsqRlNpdzKK3WLZ2kYlnzFwT17Dgt1qU9KEcMot_rgKWvSVGGihjkOVc_JitaKiuYjeVV3aSScPKoRdXqNuGWV13hE0jUMpmY83dg6llGDDbmxukhxsp08kH7e8YBjsJa2bA.webp", guns: ["MK 14 EBR", "BOSG.12.2"] },
+      { name: "LION", img: "https://i.namu.wiki/i/bGaPrHrkMbPbdnedg7Bn0Sjx7YPd9hShsw2ZXEby6VP_WOSIv5kbf_BrB813x646BnF9Laxrhr8XGGjiCw8yr0K6iHaZFOEL4Z6UbCJzrwNPztPrTkhC0cJLycuZ9P84fSGFR2-iWH6QDtugOZnXJw.webp", guns: ["V308", "417", "SG-CQB"] },
+      { name: "FINKA", img: "https://i.namu.wiki/i/ohLoy5yyh_Z3LDFcHhTKu38SjlxKGlyxlXm1ttNPbgqi8gJow9A8scOyUrrEXH2wLbD7_8ANi4mUbPbqEz8h0GjZ2jCJvn-OBPC7sYSgKmArHGBXS9K3LBpWkzEsYo1Nj1daK5lc3U_kwnDO2LFOXA.webp", guns: ["SPEAR .308", "6P41", "SASG-12"] },
+      { name: "MAVERICK", img: "https://i.namu.wiki/i/zl4HTY1qzKyfgXbnRO0VxtNIxiAtGFJJqU1N-Ndud2kO1RlxDhhXPwPbBCFV0yymmyoHil_SMvlMPzmrWwNaPOajRtk9b49ts8bL13KiPQtKGNAlHt5cbDcoa-yj9GeFPzE8FHdDHZEP_nwI6tw6NQ.webp", guns: ["AR-15.50", "M4"] },
+      { name: "NOMAD", img: "https://i.namu.wiki/i/jo34-TCaSOVpiCPsXaTI2WrjPcqY2f7sgw9U_uOjwlLoA9XH-DVKnnI30VYYiIpt5C72IDD1mMWqbm4a-VP9zuRe-KmCqslXeiN8XFk1W3_mwErArtBK1NhN6MQg3JxdTeve8o5OIVHjoZ5S_5LJ-w.webp", guns: ["AK-74M", "ARX200"] },
+      { name: "GRIDLOCK", img: "https://i.namu.wiki/i/GQo0bhWU1ly-vZHyw0AW8LA55EQenbsb-bgvaIQVTR1KTcmgLz7IiU2SxBHty9-OXfrngEf97rFIWK4_Y7ETyvM8vvHR_LipbTwahTLxCmvLKwEmP7uKrJfe7IhcsvbhfH8lLp1hTbmhonIvtvMJOA.webp", guns: ["F90", "M249 SAW"] },
+      { name: "NØKK", img: "https://i.namu.wiki/i/q5Fsfi_vWm4BkC6mkATONXWWzEWxFEzfPTzRnJw3WR3lwyAbnXgbMKYNgROJzL0p0mwyTux9b4M18dOP2VAP2qZ-kwBZzIMf9AXxbEIBR-uVNWXvDSYlAAhwfQLQek44GTKT2iwX8HiyLCrrJQbJIg.webp", guns: ["FMG-9", "SIX12 SD"] },
+      { name: "AMARU", img: "https://i.namu.wiki/i/5oqGz6hDfj1XOwW38s-eDy8Sr7sUXEyQJkkFMdiwz6DShG8goG5OaFgU8WRWmdrYhDgzA_uud_m_gi2KWjMcZI81BMQB-ZesoP-GQ-kuTxRieIT-J2KUs5uUIcCppB42WX1jopbmXWs0zfC7EIQJUA.webp", guns: ["G8A1", "SUPERNOVA"] },
+      { name: "KALI", img: "https://i.namu.wiki/i/LYNiHIZduVvjpcv_DkeieSRcoCVq7tlEmvJ49-qEujEwVCGUpmHBWkvwdgszB01B2SfmIpqRpuBLmxLHgSfI8Ox0c5lQ8UQGqdFrTRDbu9pjPNnppL3LR6LNY7mTivBgSlQABPNsrvpXZEEmzIffZA.webp", guns: ["CSRX 300"] },
+      { name: "IANA", img: "https://i.namu.wiki/i/nd3NwAQUejgpdRhGxW2Io8F-PtA_TJ_eZLENhO_elmqzaM8nQoXzvLWbMq4F7yhqHWyBLvhTShZpApzmsEUeWOLmaU7wollfHRagKoU620RVrHfWyXgoAkWoigoQufdLjR0LADjmBZfDpGqvrjo3PQ.webp", guns: ["ARX200", "G36C"] },
+      { name: "ACE", img: "https://i.namu.wiki/i/eRiXifLXAwun693amWFvjRTxt0gdZBAO0VC9CRfnfTEh6sZ2mbiS3_C-ouw0-3QOLI1m3nQPDmdsIZCxQ90q6s-8zwhEszBkA0p4tpXySYuQRGSuIP9IjAPY6Mn3XbbeYj9LTYX8Gjzmmd-l1naQqw.webp", guns: ["AK-12", "M1014"] },
+      { name: "ZERO", img: "https://i.namu.wiki/i/EvsWUMKWuy1cBwiSjDkYmCb6kLQaWqblYxojmxqvk1AWyX_vdp42eLMV3nltExTDaSpaCQFnHt7OBuc8NI59aWaAb-_x6Qd7--jt4q72nfZkZD2ubidqevlZRlIemH9S56Wnyzb7wRtRPFrtULPjUQ.webp", guns: ["SC3000K", "MP7"] },
+      { name: "FLORES", img: "https://i.namu.wiki/i/Ht9nhYpNn2LyyoYllb4om9ZEn__XqDYIrCzoV6C0kw2H3s_PlFmFBQz6C1je8fUKHbwfsNKlZKtaKBT5alPs2Ou1KcFujLz_yVHK9RNjMxu0xm5XKK-kKtbIp4HofWh9XKhWd6Y1JQuL6xNK5CVZhA.webp", guns: ["AR33", "SR-25"] },
+      { name: "OSA", img: "https://i.namu.wiki/i/dLrgCe4czh1y9ukY08QG-6t6rRr_PzETU3CiMw1Z1Sl3OhVcgQv1QkCO4yuslanxFtjmYjPQwdKJYaADxvSgPA.webp", guns: ["556XI", "PDW9"] },
+      { name: "SENS", img: "https://i.namu.wiki/i/0mSnVijBriORiWtE2_m-XEyygpTnxF-ElxWSu2W1R6O4kXHX_vMLIGiXIuNdZgOzN5-uXQY8zP6WbvckxWUh6g.webp", guns: ["POF-9", "417"] },
+      { name: "GRIM", img: "https://i.namu.wiki/i/RbZFbW2qhsBWI0fo0t2pWlemLbXTO0RXVru_dPnI4vKGdJ1z7TMXaVfXS62c6V7nPZ1Cq_OctgUrQVkhDRyr4A.webp", guns: ["552 COMMANDO", "SG-CQB"] },
+      { name: "BRAVA", img: "https://i.namu.wiki/i/SzaGlOO2Y8QKe_ZNQDg1PaxColqJhAZDnulyslHb43hWnY5cDCB5PsfyirSlD61gfpM-Pyjdq2Kt6rAOq2m_qg.webp", guns: ["PARA-308", "CAMRS", "CARMS"] },
+      { name: "RAM", img: "https://i.namu.wiki/i/cCAFsvb0BAKYQjKC-CG385hqoNnD5pm_phaTureSZwu7cqtbCcnXDALpnaR7QwqLM1VACZxSGNGLdVfTbK5YzA.webp", guns: ["R4-C", "LMG-E"] },
+      { name: "DEIMOS", img: "https://i.namu.wiki/i/iNbzs3ms6W5VRa3TaSRo-aHvJ_9vz1jxpMRvWLYhrTlGN38l9hDug7MuovTGqCzjjBYcaRJmN96ymQd4r-tUsw.webp", guns: ["AK-74M", "M590A1"] },
+      { name: "RAUORA", img: "https://i.namu.wiki/i/dLHhM0CXBBHeJx184VVn54viSl5mmvU4VHEFV0okt6SQTRvjafSnv2LfQ7Kv170hiwkLanOGt-bbg8qmCd_tDA.webp", guns: ["417", "M249"] },
+      { name: "SOLID SNAKE", img: "https://i.namu.wiki/i/mzSFdeRESHfs3JYYLNjbQQYYz6IhZ8wDa9Zo_2idp72b0ZcWe3uc2z7hWAPbK2bHvcPe9W62joPjVk6J9qAW9Q.webp", guns: ["F2", "PMR90A2"] }
+    ];
+
+    const DEFENSE_OPERATORS = [
+      { name: "SENTRY", img: "https://i.namu.wiki/i/QwoOJ0a4KKoyxFW4FGYypB_HO9kgBzgmQ_XJVqww1zXLPlUX14CPGfexVfiDJsEHskiEyfVfEgMm4fON6UKv_Q.webp", guns: ["COMMANDO 9", "M870"] },
+      { name: "SMOKE", img: "https://i.namu.wiki/i/Sb6zRGuBjbzr5Nd9YlfDlGNMB3OOSDDEnUEYKaG0Ur_6P9KwG1HcjhtB2DDIICQmcc0SVQyVdBUMsCPBWgSD7zd5nlljHMMsjavBnQrbD4gefRkCFBddRgowtueNIYsNONKfcDd6acoUKJnqdG0lSA.webp", guns: ["M590A1", "FMG-9"] },
+      { name: "MUTE", img: "https://i.namu.wiki/i/d_gaPJeNEM24RP2hLy7vS9DxBuKxuvY6dQNpQfgt6gTvBIIOHj0qrbP-Slt7bBiUsH0TS8EJ9jMaHQXpVV-SaVgogMjhA94tKFsNz4oqm-Sbkq9WjBqEsgAo9gE35AsyU7PRoPSuZslrS1UQv34KBQ.webp", guns: ["MP5K", "M590A1"] },
+      { name: "CASTLE", img: "https://i.namu.wiki/i/emspt425LIE-1NqigkHrg0xUkycz4U95B8sVqH40cxFOfVb6N4KIQgBNYr9f_4Pm9uPam7FJ81zGsICPDRxcPl8cty9qd4kfIj0R6CmWtF7PiPv1dj8VpuwK8z8hwzE1WRxEgqgJstURvwsSmk2fSg.webp", guns: ["UMP45", "M1014"] },
+      { name: "PULSE", img: "https://i.namu.wiki/i/f0g8SDP7YOS3qvox6uIGlVSAIfStnmfvRgyyO4YypKS1rdoEaxa6bWg1ox9ZsKqz1M9ysytxtymGhGJIV68RqQJr4Lt25kXBhEksGVKi05tBgIouieFRNl5uSKDRuhXEhvQnLzqhxnGdq4gfmXJKxA.webp", guns: ["UMP45", "M1014"] },
+      { name: "DOC", img: "https://i.namu.wiki/i/ncVzCwy14XTG24m_JIU0gqxqWx__byD6Z_4f97Y75ezjLMX6ikgnp2StEoDk5D1-ZCQ_Qfj4SscvAOlguJ8tyCzwj6vzeD2qDXyIe_N1SOiLz4Oe3V0z35w6XqxQq62yYKSOr44FhqNuLmffi9A7xw.webp", guns: ["MP5", "P90", "SG-CQB"] },
+      { name: "ROOK", img: "https://i.namu.wiki/i/DSMf1G2zaD3KryhPYP9sBrqO3hbBh7V-Gt5oc-D8MzGaaBGdsk12C3T8a0qQLk2aY-vg-YVp5HmCEsvooz5xh0AsoU1Tc-iz9dJkLlbm4BihS5D_Yph48wQdKGcm6fd2qF6UblmypAqPjCFYfn_2MQ.webp", guns: ["MP5", "P90", "SG-CQB"] },
+      { name: "KAPKAN", img: "https://i.namu.wiki/i/aLS6DHD4FXfPEAwvdA6j9ZZkoE4PzU5LvILU-emsBJdlTJ0ipAT4l63AuSchkt_KaGlE2MBMDU9KwLaZl3wjykYEvRMvb8nuvh1zR7mdIfoYpI8HtILLOw-1-IuUnJqb8Cu122mdFiarQu9mhzyYZQ.webp", guns: ["9X19VSN", "SASG-12"] },
+      { name: "TACHANKA", img: "https://i.namu.wiki/i/SCQIpyjKGSOyFBkcTE3twB2AnDdIRnicuWdI4Yv2V8LvLzCwl3vbkL-xr9GUJ5xITakEaSLsxyYDLS1MX_tw3LjLo2D1dK2lEpzrNdoxDyqojDIIIG4P9H9UH2OwM7QvSZv1ykICw-omU3hYztuYrQ.webp", guns: ["DP27", "9X19VSN"] },
+      { name: "JÄGER", img: "https://i.namu.wiki/i/ax56lA1TaEXiZXKAoOoNhodV4CCDPNc_jgrclb-VJdpMylf6HGHDRa88r5emcxMH0Procoq89c9gy_Asd906-xiZAJYCa2L3Si8Mzaabo6CliKB38oPRjERqObqxhPN7CswczJP3JB8Ltel4nfqufQ.webp", guns: ["M870", "416-C CARBINE", "MBZ-19"] },
+      { name: "BANDIT", img: "https://i.namu.wiki/i/yIUdcVwDkMUwwvet5dZipfve26uCNuBwcOE3DWOwmOkjhr5iCNAso8HEkXAEkV0o-CPqvsBNg6QKSTV8u02H-rDg--gtDYX8Qur-oZbjk9RIWk0ev3mrI1EOWDwI1rauDmWHXpFS_Zo3PuiRdUZz3w.webp", guns: ["MP7", "M870"] },
+      { name: "FROST", img: "https://i.namu.wiki/i/jceB7LnX4bI_jJFJlc1huz1geF1R0f4Kx3f4nGVIavSzsNqG7RNaxpVI8iElmy3akPOs9xsVPp4BK8EEeNKgQVINkj67w7Rit8OX7NA6AeaFVPE9zkqnGbE6D8-Mjf3U5csDMNUHjo-XLNpXNlVvxA.webp", guns: ["SUPER 90", "9MM C1"] },
+      { name: "VALKYRIE", img: "https://i.namu.wiki/i/dQkY4vYIH4Al5-iFVX8qNKPAPVjbV9OYvaYU3Qgj-rbaa4MfWNupFaYOBOmyf9gPiJsWNgJsms4kalMmh3YQGL2fe77rkRd4GH36AHEPCHqI0HMHOfrzrFJeQ4P7YImp3j5gRsOYeE-GfU25olyXAQ.webp", guns: ["MPX", "SPAS-12"] },
+      { name: "CAVEIRA", img: "https://i.namu.wiki/i/OhkuOpBtTXZ5e3b7i69kiwUwpXT5RxfgdnREBpGyT5Hloatf5ekN5dNEgG9IXa8Vx8vSbPMwuTS_7nsuZHaOhBmfXS5iz20_rJV-1UGSE8ORevYAEUBGxN1g586izBPK_Ors2OTxwxNzgxp-0Fs0Jg.webp", guns: ["M12", "SPAS-15"] },
+      { name: "ECHO", img: "https://i.namu.wiki/i/pKJEhfU4ISvn-NVibmTdspobwee35X4WhVA0oeBlA9gkIgjEaI6ttfsNPA5LTDfXwXRN-IK6QU4EnYzfOttGv3JObA4DLLHFM0QorDNWo1EQSKWU1uNa1R8tIszCYkTSMF14Y2nB4eTTGvaHuQbqXQ.webp", guns: ["MP5SD", "SUPERNOVA"] },
+      { name: "MIRA", img: "https://i.namu.wiki/i/mDlSl2ypscHTAfPP14TB4Ly-GXJKB-Wlr7f94g5JFpE5FIo0uC5j43xxR8jwYv90Q1Yn-gw9uDDxh4K9tc6b3ZhgpXen8v9x0eY4x-NSUiIm9wdg4U5HsUQ20GiIUgz3cbQCDBF37oQahO7zOpSeWA.webp", guns: ["VECTOR .45 ACP", "ITA12L"] },
+      { name: "LESION", img: "https://i.namu.wiki/i/l6LhBDgBep8pn5gqAdgZKEyWGY9fZjcytWiGSpZ7Rh1mPWTP1JLKDQ5BrqXTeCc6fPZkKW4e0tAemkDDBm60pksvZRUhh6-zBGpQARNHG5LjyZsAxRzEGbc-427t9bY8dHqLSKFxeIwrEKOknDwfZg.webp", guns: ["SIX12 SD", "T-5 SMG"] },
+      { name: "ELA", img: "https://i.namu.wiki/i/a-Ngl9pYgTHIBWnvRYKBt4gvVVCQTG5fZkKlLLbdvyfnXuvlo-ya_NZ0lrNM3XGzf-WrJBtnui14EhTjKhbfhjxwwgEBeRzUyPVOPn7RmyxSWUXdg7EVXc06mhTLLIm_S_A0imuMJmnVzB0G7EfqJA.webp", guns: ["SCORPION EVO 3 A1", "FO-12"] },
+      { name: "VIGIL", img: "https://i.namu.wiki/i/frkLqqs2ZDxqrpXs2AJEaoEHT9EGyBMrJuhx3_Q-oilARwSlFyPb8qgBUY8JZK5Ew_NUc3UpQzlEsNb6Ef01BilKlc2SFeTcwl2akZ5tc3tbf6oW2JuIkgheJiL9O8URpGfQNYiZeNIZFuzCMMabvA.webp", guns: ["K1A", "BOSG.12.2"] },
+      { name: "MAESTRO", img: "https://i.namu.wiki/i/GEcbk7hBDEvWzAjfUgwdWXXjzVyRu6z1PhuDFLRtGVDxCJ6IFn_kms4BYz9AFmLtzlrva6ZMd5hQVfLtdgHjXdqBslAR3oly_cfd6XOortXuRajWumvZbMPdCh42XG0yqBQKMr9yTuKay0KOVEldUA.webp", guns: ["ALDA 5.56", "ACS12"] },
+      { name: "ALIBI", img: "https://i.namu.wiki/i/X8hhVqg8RUj7qzyaM75k3lBxn6ciUQnGE5mxDNUQfB9eTEsBnXWfV9-4gAHrRZSI7WUYgTqriO415bPOpbbNAaybARSctE0TBYcmCvf-VeeiQy9UMMAVQtyEutWv-8iRRKT63hq0gpx8KHbZYqvXGg.webp", guns: ["MX4 STORM", "ACS12"] },
+      { name: "CLASH", img: "https://i.namu.wiki/i/mLDWFhXs7ocoEqn2EicL9Hg6c3togHiPg0ewlyYkxa8v843tLxtQVlVsDPX2Ca4m4MtfB9Tj5_bkb6Uv4UMulzZvOCZL9xOPOlMgGfyhkSJR1yS9cNSnYaGos9HREBfRB20pPRy1Gp7XM4AmaEljPA.webp", guns: ["SUPER SHORTY", "SPSMG9", "P-10C"] },
+      { name: "KAID", img: "https://i.namu.wiki/i/ToH2Z0zY-9cUZqMPsMzGwCeBUCnkC0AWnLF7m6sYD1yPUWuryXLqrkdSJPHdDkXtKcp1uQfpp34b1AX5irzlpJqET6kJHUOBwFwVRz8DO3cFB8Kp9Uz9KwhEFDG05JbWpBKsPb1PoPv8olDKsth4eg.webp", guns: ["AUG A3", "TCSG12"] },
+      { name: "MOZZIE", img: "https://i.namu.wiki/i/cYCV7Ac-bGMgW-6c_cyeOksSJlPps1ggF2msaOjzBc2-6g7DoUD6RKAFmiOuaMGvDoq-kcgv-jUofgIo63aJYZL-vch6aYW3KHnGvOTRSoaFmm_SWCpC42M8jXGFXsbVc1UHP2zduUaafQRaRJxdqw.webp", guns: ["COMMANDO 9", "P10 RONI"] },
+      { name: "WARDEN", img: "https://i.namu.wiki/i/EQFJx9bJOwBgxa-FH3K8qXh30aOeOaNxlOQ1jkYQh6ZrF9AVchYS1RlSruuhT5BvE6dr1Z0K1U5dX0BjJxXzy2Pc2OBAbKOixZQOUNFLizRWUeltVan24ZCAqmMqhdYLcO_mEkA_WB1TRjxZ956iIg.webp", guns: ["M590A1", "MPX", "MBZ-19"] },
+      { name: "GOYO", img: "https://i.namu.wiki/i/DaeHCe97-0ixYMYbwLKlAOvhR9WF93Wy-XrXlT5DqwNQ8f_AaFqgBtNCSTBSQ2RwjowXcwmzfIDvYK8xJEU4PLgCzCjJWx5h_XTcOZlo1rQLWX6oHus5o7diVrml0OrRfsE0iGms7sGBDVfhM1V9mg.webp", guns: ["VECTOR .45 ACP", "TCSG12"] },
+      { name: "WAMAI", img: "https://i.namu.wiki/i/S9izDGUjzbjjYBbrPelBTQDSdyRIb6VCnU1RnJidNydwCZt7dE_dEwvZ_G7JW8fosYYZYFNtnGIX68WSRPFAGUfb85CV0mh3oZDd1xViLM80tamVEy3gipEcw1ZvKGZfoy04Qu5J6XGsluJF-p1gjQ.webp", guns: ["AUG A2", "MP5K"] },
+      { name: "ORYX", img: "https://i.namu.wiki/i/5A9W3nX98bWash1zBSg2Ic7JjzbpKjYZCsWGRJ0OTRrwI3ZvJckLDfqZj_gm9_IE7roybEdNcygyKS7aEjVi9EswkubwjpXKMT6Eo-HEJL5NdZ_6luK3Ggze6q4pdqYlTl-r_Ohrb3sXMe8DvIMHZQ.webp", guns: ["SPAS-12", "T-5 SMG"] },
+      { name: "MELUSI", img: "https://i.namu.wiki/i/_v53jy65Of18C0yANXO4A3dbnVmQgknR43amh-gnXdrv2Y_wwnGuypzCHyLGX_Y9u0EEVq0T0f185ea2qlDgSA7psnIh1Xa1pJRa4uvLOvn3Z1BQg8je_K5h6Gmr-B8HLWyvnXyGxR6DFiooYP722g.webp", guns: ["MP5", "SUPER 90"] },
+      { name: "ARUNI", img: "https://i.namu.wiki/i/mRD7VpL8mZrDrnhfHUPnV7burSyTE_bbbQvQQlprW_1xkUzOtZkcA_YhG9WiXtUWGh4lLKU6uAA7X9nk6aO4FVtgJiU0He_ygmmgEl_5dhHOd_jPgx7MswCRnGROSemdHOhk5DivFuV34_E1gWiQMQ.webp", guns: ["P10 RONI", "MK 14 EBR"] },
+      { name: "THUNDERBIRD", img: "https://i.namu.wiki/i/z3iFMYn6wtBxjuZCOt5R_5QUxikHEQQD2XrJG5hCbxkUhejn92bZnsWshF-3drW9Pyl5HZ_rR2ep2swTRHMi3A.webp", guns: ["SPEAR .308", "SPAS-15", "MBZ-19"] },
+      { name: "THORN", img: "https://i.namu.wiki/i/cCrTAJFfak8ODQLiULofIfAe1IzvzBCVGy0KYvVUXlJWxGbUyfcTZZRgRdGIlopyzGcCuLZBFNqqx9z48oXFqQ.webp", guns: ["UZK50GI", "M870"] },
+      { name: "AZAMI", img: "https://i.namu.wiki/i/nIiqKLInYgTu-YMRyYh797HXSHrogZBiKojm0jHrwcFlTjx2148oVYm1yq2D7V8mi4XIxy1OsbRjTi84zQcFsg.webp", guns: ["9X19VSN", "ACS12"] },
+      { name: "SOLIS", img: "https://i.namu.wiki/i/T5Qn6CZ7ZhKffMgtnQ_E8VHgREhm5DFXYnn_OjACPBXlhzV91GSO_8iW9a3mqv6RCnkTqt7swyZjkni31Gv-Hg.webp", guns: ["P90", "ITA12L"] },
+      { name: "FENRIR", img: "https://i.namu.wiki/i/CdO-I-guyEB1Iv6pERZzDAIcxdOFiEtY-KaRr3SqKLyjt-QXaYfBtX-x4rvKIf9FO9vjch9YH7ByiljZWke-bQ.webp", guns: ["MP7", "SASG-12"] },
+      { name: "TUBARÃO", img: "https://i.namu.wiki/i/Hr2sNCK59tiYwABiYv2YFATFCw6AE6dYFqjBf9h2orCX7ZzdaMIdJyY1g_4ZD0n_X1POb-9ujviTdS3cuXwokA.webp", guns: ["MPX", "AR-15.50"] },
+      { name: "SKOPÓS", img: "https://i.namu.wiki/i/GeC6REaPsu05gVnmHWqduHSh7lXGxJy0bwgbeL-m8eW3Wt0t3-8eolnTkrkXycW9dCyQFOn2dvJWotizWot93A.webp", guns: ["PCX-33"] },
+      { name: "DENARI", img: "https://i.namu.wiki/i/9gfb9WDuo4fazoxSAri1OR1RPK8gCLurB9vFmoNue9VUp--A3zl3LoyNuh2vfrwjeR48jk4_ual0PoMZVN2XPg.png", guns: ["SCORPION EVO 3 A1", "FMG-9"] },
+      { name: "NOOR", img: "https://i.namu.wiki/i/-S9-v21tPFRCfihB5VUM-MKR10JnG_LmZxTqJsYQo4jE8nTeiE2eFD6zf0qMWQY87tC-SbgH-tMyiosfacgkqMHINXkYEnHQdWvqHdciEmMjxDbMMp0A_KXahbnTPsk7iFwCIxSkochGPMRqxp2FVw.webp", guns: ["M12", "DP27"] }
+    ];
+
+    let weaponsData = [];
+    let currentTab = 'ALL';
+    let sortKey = 'default';
+    let sortAsc = true;
+
+    // =========================================================================
+    // 3. Google Sheets CSV 비동기 Fetch (Direct + CORS Proxy Fallback) & 파싱
+    // =========================================================================
+    function parseCsvText(csvText) {
+      return new Promise((resolve) => {
+        Papa.parse(csvText, {
+          skipEmptyLines: false,
+          complete: (results) => resolve(results.data || [])
+        });
+      });
+    }
+
+    async function fetchCsvSmart(url) {
+      // 1차: 직접 fetch 시도
+      try {
+        const res = await fetch(url);
+        if (res.ok) {
+          const text = await res.text();
+          if (text && text.includes(',')) {
+            return await parseCsvText(text);
+          }
+        }
+      } catch (e) {
+        console.warn('Direct fetch failed, trying CORS proxy:', e);
+      }
+
+      // 2차: AllOrigins raw 프록시 폴백 (로컬 file:// 환경 대응)
+      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+      const proxyRes = await fetch(proxyUrl);
+      if (!proxyRes.ok) throw new Error('Proxy fetch failed');
+      const text = await proxyRes.text();
+      if (!text || !text.includes(',')) throw new Error('Empty proxy contents');
+      return await parseCsvText(text);
+    }
+
+    // 시트의 1/2/3아머 셀 문자열 파싱 (빈 셀이나 단발/샷건류는 null 반환하여 빈칸 유지)
+    function parseArmorCell(cellVal, dmg, rpm, baseHp) {
+      const str = (cellVal || '').toString().trim();
+      if (!str || str === '-' || str === 'N/A' || str === '#VALUE!' || str === '#DIV/0!') {
+        return null;
+      }
+      const isDbno = str.includes('부상');
+      const timeMatch = str.match(/(\d+(?:\.\d+)?)\s*초|(\d+(?:\.\d+)?)\s*s\b/i);
+      const shotsMatch = str.match(/(\d+)\s*발|\((\d+)\)/);
+
+      const interval = rpm > 0 ? 60 / rpm : 0;
+      const calcShots = Math.ceil(baseHp / dmg);
+      const calcTtk = Math.max(0, (calcShots - 1) * interval);
+
+      const ttk = timeMatch ? parseFloat(timeMatch[1] || timeMatch[2]) : calcTtk;
+      const shots = shotsMatch ? parseInt(shotsMatch[1] || shotsMatch[2], 10) : calcShots;
+
+      return { ttk, shots, isDbno };
+    }
+
+    function parseSheetRows(rows, side, orderOffset) {
+      if (!Array.isArray(rows) || rows.length === 0) return [];
+
+      const opList = side === 'ATK' ? ATTACK_OPERATORS : DEFENSE_OPERATORS;
+
+      let headerIdx = -1;
+      // 기본 컬럼 인덱스: 0='오퍼', 1='총', 2='데미지', 3='연사력', 4='DPS', 5='1아머', 6='2아머', 7='3아머'
+      let colMap = { ops: 0, name: 1, dmg: 2, rpm: 3, dps: 4, a1: 5, a2: 6, a3: 7 };
+
+      for (let i = 0; i < Math.min(rows.length, 15); i++) {
+        const row = rows[i].map(cell => (cell || '').toString().trim());
+        const gunIdx = row.findIndex(c => c === '총' || c === '무기' || c === '무기명');
+        const dmgIdx = row.findIndex(c => c.includes('데미지'));
+        if (gunIdx !== -1 || dmgIdx !== -1) {
+          headerIdx = i;
+          const opsIdx = row.findIndex(c => c === '오퍼' || c === '오퍼레이터');
+          if (opsIdx !== -1) colMap.ops = opsIdx;
+          else if (gunIdx > 0) colMap.ops = gunIdx - 1;
+
+          if (gunIdx !== -1) colMap.name = gunIdx;
+          else if (dmgIdx > 0) colMap.name = dmgIdx - 1;
+
+          const rpmIdx = row.findIndex(c => c.includes('연사력'));
+          const dpsIdx = row.findIndex(c => c.toUpperCase().includes('DPS'));
+          const a1Idx = row.findIndex(c => c.replace(/\s+/g, '').includes('1아머'));
+          const a2Idx = row.findIndex(c => c.replace(/\s+/g, '').includes('2아머'));
+          const a3Idx = row.findIndex(c => c.replace(/\s+/g, '').includes('3아머'));
+
+          if (dmgIdx !== -1) colMap.dmg = dmgIdx;
+          if (rpmIdx !== -1) colMap.rpm = rpmIdx;
+          if (dpsIdx !== -1) colMap.dps = dpsIdx;
+          if (a1Idx !== -1) colMap.a1 = a1Idx;
+          if (a2Idx !== -1) colMap.a2 = a2Idx;
+          if (a3Idx !== -1) colMap.a3 = a3Idx;
+          break;
+        }
+      }
+
+      const startRow = headerIdx !== -1 ? headerIdx + 1 : 1;
+      const validRows = [];
+
+      for (let r = startRow; r < rows.length; r++) {
+        const row = rows[r];
+        if (!row || row.length <= colMap.dmg) continue;
+
+        // '오퍼' 열(기본 0번 인덱스) 및 혹시 앞선 빈 열이 있다면 함께 확인
+        const rawOpsCell = (row[colMap.ops] || '').toString().trim();
+        const rawFirstCol = (row[0] || '').toString().trim();
+        const opCellMarker = rawOpsCell || (colMap.ops > 0 ? rawFirstCol : '');
+
+        const rawName = (row[colMap.name] || '').toString().trim();
+        const rawDmg = (row[colMap.dmg] || '').toString().replace(/,/g, '').trim();
+        const rawRpmCell = (row[colMap.rpm] || '').toString().replace(/,/g, '').trim();
+        const rawDpsCell = (row[colMap.dps] || '').toString().replace(/,/g, '').trim();
+
+        const dmg = parseFloat(rawDmg);
+        const isSemiAuto = rawRpmCell.includes('단발');
+        const parsedRpm = parseFloat(rawRpmCell);
+        const rpm = !isNaN(parsedRpm) && parsedRpm > 0 ? parsedRpm : 0;
+        const parsedDps = parseFloat(rawDpsCell);
+
+        if (rawName && !isNaN(dmg) && dmg > 0) {
+          validRows.push({
+            r,
+            opCellMarker,
+            name: rawName,
+            dmg,
+            rpm,
+            rpmLabel: isSemiAuto ? '단발' : (rpm > 0 ? `${rpm}` : (rawRpmCell || '')),
+            sheetDps: !isNaN(parsedDps) && parsedDps > 0 ? parsedDps : null,
+            a1Raw: row[colMap.a1] || '',
+            a2Raw: row[colMap.a2] || '',
+            a3Raw: row[colMap.a3] || ''
+          });
+        }
+      }
+
+      // -----------------------------------------------------------------------
+      // 핵심 그룹핑 규칙:
+      // 1) 구글 시트에서 '오퍼' 열(index 0)은 각 오퍼레이터의 첫 번째 무기 행에만 값이 있고,
+      //    같은 오퍼레이터의 두 번째, 세 번째 무기 행에서는 빈칸('')으로 되어 있음.
+      // 2) 따라서 opCellMarker가 비어있지 않으면 무조건 다음 오퍼레이터로 전환!
+      // 3) opCellMarker가 비어있더라도 BLITZ(P12), KALI(CSRX 300), CLASH(SUPER SHORTY/SPSMG9/P-10C)
+      //    또는 그 직후 오퍼레이터의 첫 무기가 시트 빈칸으로 시작하는 경우에도 정확히 분리!
+      // -----------------------------------------------------------------------
+      let opIdx = 0;
+      const parsed = [];
+
+      for (let idx = 0; idx < validRows.length; idx++) {
+        const vr = validRows[idx];
+        const normGun = vr.name.toUpperCase().replace(/\s+/g, ' ').trim();
+        const hasOpMarker = vr.opCellMarker !== '';
+
+        if (idx === 0) {
+          opIdx = 0;
+        } else if (hasOpMarker) {
+          // 시트의 '오퍼' 열에 새 URL이나 텍스트가 있으면 무조건 다음 오퍼레이터로 이동
+          if (opIdx + 1 < opList.length) {
+            opIdx++;
+          }
+        } else {
+          // '오퍼' 열이 비어있는 경우: 기본은 현재 오퍼레이터의 추가 무기(예: BUCK의 CAMRS, BLACKBEARD의 SR-25 등)이지만,
+          // 시트에서 오퍼 셀이 누락된 특수 오퍼레이터(BLITZ, KALI, CLASH) 및 그 직후 오퍼레이터 전환은 보정
+          const curOp = opList[opIdx];
+          if (side === 'ATK') {
+            if ((normGun === 'P12' || normGun === 'P-12') && curOp && curOp.name === 'FUZE') {
+              const blitzIdx = opList.findIndex(o => o.name === 'BLITZ');
+              if (blitzIdx !== -1) opIdx = blitzIdx;
+            } else if (curOp && curOp.name === 'BLITZ' && normGun !== 'P12' && normGun !== 'P-12') {
+              const iqIdx = opList.findIndex(o => o.name === 'IQ');
+              if (iqIdx !== -1) opIdx = iqIdx;
+            } else if (normGun === 'CSRX 300' && curOp && curOp.name === 'AMARU') {
+              const kaliIdx = opList.findIndex(o => o.name === 'KALI');
+              if (kaliIdx !== -1) opIdx = kaliIdx;
+            } else if (curOp && curOp.name === 'KALI' && normGun !== 'CSRX 300') {
+              const ianaIdx = opList.findIndex(o => o.name === 'IANA');
+              if (ianaIdx !== -1) opIdx = ianaIdx;
+            }
+          } else if (side === 'DEF') {
+            if ((normGun === 'SUPER SHORTY' || normGun === 'SPSMG9' || normGun === 'P-10C') && curOp && curOp.name === 'ALIBI') {
+              const clashIdx = opList.findIndex(o => o.name === 'CLASH');
+              if (clashIdx !== -1) opIdx = clashIdx;
+            } else if (curOp && curOp.name === 'CLASH' && normGun !== 'SUPER SHORTY' && normGun !== 'SPSMG9' && normGun !== 'P-10C') {
+              const kaidIdx = opList.findIndex(o => o.name === 'KAID');
+              if (kaidIdx !== -1) opIdx = kaidIdx;
+            }
+          }
+        }
+
+        const isFirstOfOp = (idx === 0) || (parsed[idx - 1].opGroupIndex !== opIdx);
+        const opMeta = opList[opIdx] || { name: '', img: '' };
+        const urlMatch = vr.opCellMarker.match(/https?:\/\/[^\s"'<>]+/i);
+        const sheetImgUrl = urlMatch ? urlMatch[0] : '';
+
+        // 시트 첫 번째 열의 이미지 URL을 우선 사용하고, 없을 경우 공식 매핑 URL 폴백 사용
+        const currentOpName = opMeta.name;
+        const currentOpImg = sheetImgUrl || opMeta.img || '';
+        const fallbackOpImg = opMeta.img || '';
+
+        const pA1 = parseArmorCell(vr.a1Raw, vr.dmg, vr.rpm, 100);
+        const pA2 = parseArmorCell(vr.a2Raw, vr.dmg, vr.rpm, 110);
+        const pA3 = parseArmorCell(vr.a3Raw, vr.dmg, vr.rpm, 125);
+        const hasTtk = Boolean(pA1 || pA2 || pA3);
+
+        const calcDps = vr.sheetDps !== null ? vr.sheetDps : (vr.rpm > 0 ? (vr.dmg * vr.rpm) / 60 : null);
+
+        parsed.push({
+          id: `${side.toLowerCase()}_${vr.r}`,
+          order: orderOffset + idx,
+          side,
+          opGroupIndex: opIdx,
+          ops: currentOpName,
+          opsImg: currentOpImg,
+          opsFallbackImg: fallbackOpImg,
+          isFirstOfOp,
+          isLastOfOp: false,
+          name: vr.name,
+          dmg: vr.dmg,
+          rpm: vr.rpm,
+          rpmLabel: vr.rpmLabel,
+          dps: calcDps,
+          hasTtk,
+          a1Ttk: pA1 ? pA1.ttk : null,
+          a1Shots: pA1 ? pA1.shots : null,
+          a1Dbno: pA1 ? pA1.isDbno : false,
+          a2Ttk: pA2 ? pA2.ttk : null,
+          a2Shots: pA2 ? pA2.shots : null,
+          a2Dbno: pA2 ? pA2.isDbno : false,
+          a3Ttk: pA3 ? pA3.ttk : null,
+          a3Shots: pA3 ? pA3.shots : null,
+          a3Dbno: pA3 ? pA3.isDbno : false,
+        });
+      }
+
+      for (let i = 0; i < parsed.length; i++) {
+        if (i === parsed.length - 1 || parsed[i + 1].opGroupIndex !== parsed[i].opGroupIndex) {
+          parsed[i].isLastOfOp = true;
+        }
+      }
+
+      return parsed;
+    }
+
+    async function fetchAllSheets(isManual = false) {
+      const badge = document.getElementById('syncStatusBadge');
+      const refreshIcon = document.getElementById('refreshIcon');
+      if (refreshIcon) refreshIcon.classList.add('animate-spin');
+
+      try {
+        const [atkRows, defRows] = await Promise.all([
+          fetchCsvSmart(ATTACK_CSV_URL),
+          fetchCsvSmart(DEFENSE_CSV_URL)
+        ]);
+
+        const atkList = parseSheetRows(atkRows, 'ATK', 0);
+        const defList = parseSheetRows(defRows, 'DEF', 10000);
+        const combined = [...atkList, ...defList];
+
+        if (combined.length > 0) {
+          weaponsData = combined;
+          if (badge) {
+            badge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-300 border border-emerald-500/30';
+            badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span><span>Google Sheets 동기화 완료</span>`;
+          }
+          if (isManual) {
+            showToast('Google Sheets 최신 데이터를 성공적으로 불러왔습니다.');
+          }
+        } else {
+          throw new Error('파싱된 데이터가 없습니다.');
+        }
+      } catch (err) {
+        console.warn('Google Sheets 동기화 실패:', err);
+        if (badge) {
+          badge.className = 'hidden sm:inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-medium bg-rose-500/10 text-rose-300 border border-rose-500/30';
+          badge.innerHTML = `<span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span><span>시트 연결 지연</span>`;
+        }
+        if (isManual) {
+          showToast('구글 시트 데이터를 불러오는 데 실패했습니다. 네트워크 상태를 확인해 주세요.', 'warn');
+        }
+      } finally {
+        if (refreshIcon) refreshIcon.classList.remove('animate-spin');
+        populateVsSelects();
+        renderTable();
+      }
+    }
+
+    // =========================================================================
+    // 4. 핵심 DPS & TTK 계산 로직
+    // =========================================================================
+    function calculateStats(dmg, rpm, bonusHp = 0) {
+      const effectiveRpm = rpm > 0 ? rpm : 1;
+      const dps = rpm > 0 ? (dmg * rpm) / 60 : 0;
+      const interval = rpm > 0 ? 60 / effectiveRpm : 0;
+
+      const armors = [
+        { level: 1, baseHp: 100 },
+        { level: 2, baseHp: 110 },
+        { level: 3, baseHp: 125 }
+      ];
+
+      const results = {};
+      armors.forEach(a => {
+        const targetHp = a.baseHp + bonusHp;
+        const shots = Math.ceil(targetHp / dmg);
+        const totalDealt = shots * dmg;
+        const isDbno = (totalDealt >= targetHp) && (totalDealt < targetHp + 20);
+        const ttk = Math.max(0, (shots - 1) * interval);
+
+        results[`a${a.level}`] = { targetHp, shots, ttk, isDbno };
+      });
+
+      return { dps, ...results };
+    }
+
+    // =========================================================================
+    // 5. 실시간 시뮬레이터 렌더링 & 빠른 실행 [ROOK]
+    // =========================================================================
+    function clearSimBadge() {
+      const badge = document.getElementById('simWeaponBadge');
+      badge.classList.add('hidden');
+      badge.textContent = '';
+    }
+
+    function handleModifierChange() {
+      runCalculator();
+      runVsCompare();
+      renderTable();
+    }
+
+    function applyRookToSimulator(id) {
+      const w = weaponsData.find(item => item.id === id);
+      if (!w) return;
+      document.getElementById('calcDmg').value = w.dmg;
+      document.getElementById('calcRpm').value = w.rpm > 0 ? w.rpm : 450;
+      document.getElementById('chkRookArmor').checked = true;
+
+      const badge = document.getElementById('simWeaponBadge');
+      badge.textContent = `${w.name}${w.ops ? ' (' + w.ops + ')' : ''}`;
+      badge.classList.remove('hidden');
+
+      handleModifierChange();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      showToast(`[${w.name}] 무기에 ROOK 방탄판(+20 HP)을 적용하여 시뮬레이터에 반영했습니다.`);
+    }
+
+    function runCalculator() {
+      const baseDmg = Math.max(1, parseFloat(document.getElementById('calcDmg').value) || 1);
+      const rpm = Math.max(1, parseFloat(document.getElementById('calcRpm').value) || 1);
+
+      const extBarrel = document.getElementById('chkExtBarrel').checked;
+      const rookArmor = document.getElementById('chkRookArmor').checked;
+
+      const finalDmg = extBarrel ? Math.floor(baseDmg * 1.12) : baseDmg;
+      const bonusHp = rookArmor ? 20 : 0;
+
+      const stats = calculateStats(finalDmg, rpm, bonusHp);
+
+      document.getElementById('resFinalDmg').innerHTML = extBarrel
+        ? `${finalDmg} <span class="text-xs font-normal text-slate-400">(기본 ${baseDmg} +12%)</span>`
+        : `${finalDmg}`;
+      document.getElementById('resDps').textContent = stats.dps.toFixed(1);
+
+      const armorLabels = [
+        { key: 'a1', title: '1아머 (100HP)', color: 'text-[#38bdf8]', border: 'border-sky-500/30' },
+        { key: 'a2', title: '2아머 (110HP)', color: 'text-emerald-400', border: 'border-emerald-500/30' },
+        { key: 'a3', title: '3아머 (125HP)', color: 'text-[#f43f5e]', border: 'border-rose-500/30' }
+      ];
+
+      const container = document.getElementById('calcArmorCards');
+      container.innerHTML = armorLabels.map(item => {
+        const d = stats[item.key];
+        return `
+          <div class="bg-[#0b0f19]/90 border ${item.border} rounded-xl p-3 flex flex-col justify-between">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-[11px] font-bold ${item.color}">${item.title}</span>
+              <span class="text-[10px] font-mono text-slate-500">${d.targetHp}HP</span>
+            </div>
+            <div class="my-1">
+              <span class="font-mono text-lg sm:text-xl font-extrabold text-white">${d.ttk.toFixed(3)}</span>
+              <span class="text-xs text-slate-400">초</span>
+            </div>
+            <div class="flex items-center justify-between pt-1.5 border-t border-[#1e293b]">
+              <span class="text-xs font-mono font-semibold text-slate-300">${d.shots}발</span>
+              ${d.isDbno
+                ? `<span class="px-1.5 py-0.5 rounded bg-amber-500/20 text-[#facc15] border border-amber-500/40 text-[10px] font-bold">부상</span>`
+                : `<span class="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-300 text-[10px] font-semibold">처치</span>`
+              }
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function resetCalculator() {
+      clearSimBadge();
+      document.getElementById('calcDmg').value = 40;
+      document.getElementById('calcRpm').value = 850;
+      document.getElementById('chkExtBarrel').checked = false;
+      document.getElementById('chkRookArmor').checked = false;
+      handleModifierChange();
+    }
+
+    // =========================================================================
+    // 6. 무기 1:1 비교 (공격/수비 체크박스 필터, 중복 제거, 순수 무기명 A-Z 정렬)
+    // =========================================================================
+    function handleVsFilterChange() {
+      const chkAtk = document.getElementById('vsFilterAtk');
+      const chkDef = document.getElementById('vsFilterDef');
+      if (!chkAtk.checked && !chkDef.checked) {
+        chkAtk.checked = true;
+      }
+      populateVsSelects();
+    }
+
+    function getFilteredUniqueVsWeapons() {
+      const showAtk = document.getElementById('vsFilterAtk').checked;
+      const showDef = document.getElementById('vsFilterDef').checked;
+
+      const filtered = weaponsData.filter(w => {
+        if (w.side === 'ATK' && showAtk) return true;
+        if (w.side === 'DEF' && showDef) return true;
+        return false;
+      });
+
+      const uniqueMap = new Map();
+      filtered.forEach(w => {
+        const key = w.name.trim().toUpperCase();
+        if (!uniqueMap.has(key)) {
+          uniqueMap.set(key, w);
+        }
+      });
+
+      return Array.from(uniqueMap.values()).sort((a, b) =>
+        a.name.localeCompare(b.name, 'en', { sensitivity: 'base' })
+      );
+    }
+
+    function populateVsSelects() {
+      const selA = document.getElementById('vsSelectA');
+      const selB = document.getElementById('vsSelectB');
+      const prevNameA = selA.options[selA.selectedIndex]?.text || '';
+      const prevNameB = selB.options[selB.selectedIndex]?.text || '';
+
+      const uniqueList = getFilteredUniqueVsWeapons();
+
+      const optionsHtml = uniqueList.map(w =>
+        `<option value="${w.id}">${w.name}</option>`
+      ).join('');
+
+      selA.innerHTML = optionsHtml;
+      selB.innerHTML = optionsHtml;
+
+      const matchA = uniqueList.find(w => w.name === prevNameA);
+      if (matchA) {
+        selA.value = matchA.id;
+      } else {
+        const r4c = uniqueList.find(w => w.name.toUpperCase() === 'R4-C');
+        if (r4c) selA.value = r4c.id;
+      }
+
+      const matchB = uniqueList.find(w => w.name === prevNameB);
+      if (matchB) {
+        selB.value = matchB.id;
+      } else {
+        const ak12 = uniqueList.find(w => w.name.toUpperCase() === 'AK-12');
+        if (ak12) selB.value = ak12.id;
+        else if (uniqueList.length > 1) selB.selectedIndex = 1;
+      }
+
+      runVsCompare();
+    }
+
+    function setVsWeapon(slot, id) {
+      const targetWeapon = weaponsData.find(item => item.id === id);
+      if (!targetWeapon) return;
+
+      if (targetWeapon.side === 'ATK' && !document.getElementById('vsFilterAtk').checked) {
+        document.getElementById('vsFilterAtk').checked = true;
+        populateVsSelects();
+      } else if (targetWeapon.side === 'DEF' && !document.getElementById('vsFilterDef').checked) {
+        document.getElementById('vsFilterDef').checked = true;
+        populateVsSelects();
+      }
+
+      const uniqueList = getFilteredUniqueVsWeapons();
+      const matched = uniqueList.find(w => w.name.trim().toUpperCase() === targetWeapon.name.trim().toUpperCase()) || targetWeapon;
+
+      if (slot === 'A') document.getElementById('vsSelectA').value = matched.id;
+      if (slot === 'B') document.getElementById('vsSelectB').value = matched.id;
+
+      showToast(`[${targetWeapon.name}] 무기를 1:1 비교기 ${slot}슬롯에 지정했습니다.`);
+      runVsCompare();
+    }
+
+    function runVsCompare() {
+      const idA = document.getElementById('vsSelectA').value;
+      const idB = document.getElementById('vsSelectB').value;
+      const wA = weaponsData.find(w => w.id === idA);
+      const wB = weaponsData.find(w => w.id === idB);
+      const container = document.getElementById('vsResultContainer');
+
+      if (!wA || !wB) {
+        container.innerHTML = `<div class="p-6 text-center text-xs text-slate-500">비교할 무기를 불러오는 중입니다...</div>`;
+        return;
+      }
+
+      const extBarrel = document.getElementById('chkExtBarrel').checked;
+      const rookArmor = document.getElementById('chkRookArmor').checked;
+      const bonusHp = rookArmor ? 20 : 0;
+
+      const dmgA = extBarrel ? Math.floor(wA.dmg * 1.12) : wA.dmg;
+      const dmgB = extBarrel ? Math.floor(wB.dmg * 1.12) : wB.dmg;
+
+      const sA = calculateStats(dmgA, wA.rpm, bonusHp);
+      const sB = calculateStats(dmgB, wB.rpm, bonusHp);
+
+      const rows = [
+        { label: extBarrel ? '데미지 (연장총열)' : '기본 데미지', valA: dmgA, valB: dmgB, fmtA: `${dmgA}`, fmtB: `${dmgB}`, diffFmt: d => `${d > 0 ? '+' : ''}${d}`, higherBetter: true },
+        { label: '연사력 (RPM)', valA: wA.rpm, valB: wB.rpm, fmtA: wA.rpmLabel || `${wA.rpm}`, fmtB: wB.rpmLabel || `${wB.rpm}`, diffFmt: d => `${d > 0 ? '+' : ''}${d}`, higherBetter: true },
+        { label: '초당 데미지 (DPS)', valA: sA.dps, valB: sB.dps, fmtA: sA.dps > 0 ? sA.dps.toFixed(1) : '-', fmtB: sB.dps > 0 ? sB.dps.toFixed(1) : '-', diffFmt: d => `${d > 0 ? '+' : ''}${d.toFixed(1)}`, higherBetter: true },
+        { label: `1아머 TTK (${100 + bonusHp}HP)`, valA: wA.rpm > 0 ? sA.a1.ttk : Infinity, valB: wB.rpm > 0 ? sB.a1.ttk : Infinity, fmtA: wA.rpm > 0 ? `${sA.a1.ttk.toFixed(3)}s (${sA.a1.shots}발)` : `${sA.a1.shots}발`, fmtB: wB.rpm > 0 ? `${sB.a1.ttk.toFixed(3)}s (${sB.a1.shots}발)` : `${sB.a1.shots}발`, diffFmt: d => `${d > 0 ? '+' : ''}${d.toFixed(3)}s`, higherBetter: false },
+        { label: `2아머 TTK (${110 + bonusHp}HP)`, valA: wA.rpm > 0 ? sA.a2.ttk : Infinity, valB: wB.rpm > 0 ? sB.a2.ttk : Infinity, fmtA: wA.rpm > 0 ? `${sA.a2.ttk.toFixed(3)}s (${sA.a2.shots}발)` : `${sA.a2.shots}발`, fmtB: wB.rpm > 0 ? `${sB.a2.ttk.toFixed(3)}s (${sB.a2.shots}발)` : `${sB.a2.shots}발`, diffFmt: d => `${d > 0 ? '+' : ''}${d.toFixed(3)}s`, higherBetter: false },
+        { label: `3아머 TTK (${125 + bonusHp}HP)`, valA: wA.rpm > 0 ? sA.a3.ttk : Infinity, valB: wB.rpm > 0 ? sB.a3.ttk : Infinity, fmtA: wA.rpm > 0 ? `${sA.a3.ttk.toFixed(3)}s (${sA.a3.shots}발)` : `${sA.a3.shots}발`, fmtB: wB.rpm > 0 ? `${sB.a3.ttk.toFixed(3)}s (${sB.a3.shots}발)` : `${sB.a3.shots}발`, diffFmt: d => `${d > 0 ? '+' : ''}${d.toFixed(3)}s`, higherBetter: false },
+      ];
+
+      container.innerHTML = `
+        <table class="w-full text-xs">
+          <thead>
+            <tr class="bg-slate-900 border-b border-[#1e293b] text-slate-400">
+              <th class="py-2 px-3 text-left font-bold text-[#38bdf8] w-[36%] truncate">${wA.name}</th>
+              <th class="py-2 px-2 text-center font-semibold w-[28%]">비교 항목</th>
+              <th class="py-2 px-3 text-right font-bold text-[#f43f5e] w-[36%] truncate">${wB.name}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#1e293b]/70">
+            ${rows.map(r => {
+              const hasValidVals = isFinite(r.valA) && isFinite(r.valB) && r.valA > 0 && r.valB > 0;
+              const rawDiff = r.valA - r.valB;
+              const isTie = !hasValidVals || Math.abs(rawDiff) < 0.0001;
+              const aWins = !isTie && (r.higherBetter ? r.valA > r.valB : r.valA < r.valB);
+              const bWins = !isTie && !aWins;
+
+              return `
+                <tr class="hover:bg-slate-900/50">
+                  <td class="py-2 px-3 font-mono ${aWins ? 'text-sky-300 font-bold bg-sky-500/10' : 'text-slate-300'}">
+                    ${r.fmtA} ${aWins ? `<span class="ml-1 text-[10px] text-[#38bdf8]">(${r.diffFmt(rawDiff)})</span>` : ''}
+                  </td>
+                  <td class="py-2 px-2 text-center text-slate-400 font-medium">${r.label}</td>
+                  <td class="py-2 px-3 text-right font-mono ${bWins ? 'text-rose-300 font-bold bg-rose-500/10' : 'text-slate-300'}">
+                    ${bWins ? `<span class="mr-1 text-[10px] text-[#f43f5e]">(${r.diffFmt(-rawDiff)})</span>` : ''} ${r.fmtB}
+                  </td>
+                </tr>
+              `;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    // =========================================================================
+    // 7. 하단 통합 무기 테이블 렌더링 (오퍼 첫 행 아이콘+영문명 & 그룹 경계선)
+    // =========================================================================
+    function setTab(tab) {
+      currentTab = tab;
+      ['ALL', 'ATK', 'DEF'].forEach(t => {
+        const btn = document.getElementById(`tab-${t}`);
+        if (!btn) return;
+        if (t === tab) {
+          btn.className = 'tab-btn px-4 py-1.5 rounded-lg text-xs font-bold bg-[#38bdf8] text-[#0b0f19] shadow-sm transition';
+        } else {
+          btn.className = 'tab-btn px-4 py-1.5 rounded-lg text-xs font-bold text-slate-400 hover:text-white hover:bg-slate-900 transition';
+        }
+      });
+
+      renderTable();
+    }
+
+    function handleSortSelect(val) {
+      if (val === 'default') {
+        sortKey = 'default';
+        sortAsc = true;
+      } else {
+        const [k, dir] = val.split('_');
+        sortKey = k;
+        sortAsc = dir === 'asc';
+      }
+      updateSortIndicators();
+      renderTable();
+    }
+
+    function toggleSort(key) {
+      if (sortKey === key) {
+        sortAsc = !sortAsc;
+      } else {
+        sortKey = key;
+        sortAsc = key === 'name' || key.startsWith('ttk');
+      }
+      const sel = document.getElementById('sortSelect');
+      const candidate = `${sortKey}_${sortAsc ? 'asc' : 'desc'}`;
+      if ([...sel.options].some(o => o.value === candidate)) {
+        sel.value = candidate;
+      }
+      updateSortIndicators();
+      renderTable();
+    }
+
+    function updateSortIndicators() {
+      ['name', 'dmg', 'rpm', 'dps', 'ttk1', 'ttk2', 'ttk3'].forEach(k => {
+        const el = document.getElementById(`sort-${k}`);
+        if (el) el.textContent = (k === sortKey) ? (sortAsc ? '▲' : '▼') : '';
+      });
+    }
+
+    function renderTable() {
+      const search = document.getElementById('searchInput').value.trim().toLowerCase();
+      const extBarrel = document.getElementById('chkExtBarrel').checked;
+      const rookArmor = document.getElementById('chkRookArmor').checked;
+      const hasModifier = extBarrel || rookArmor;
+      const bonusHp = rookArmor ? 20 : 0;
+
+      let enriched = weaponsData.map(w => {
+        const effectiveDmg = extBarrel ? Math.floor(w.dmg * 1.12) : w.dmg;
+        const effectiveDps = hasModifier
+          ? (w.rpm > 0 ? (effectiveDmg * w.rpm) / 60 : null)
+          : w.dps;
+
+        let a1Ttk = w.a1Ttk, a1Shots = w.a1Shots, a1Dbno = w.a1Dbno;
+        let a2Ttk = w.a2Ttk, a2Shots = w.a2Shots, a2Dbno = w.a2Dbno;
+        let a3Ttk = w.a3Ttk, a3Shots = w.a3Shots, a3Dbno = w.a3Dbno;
+
+        if (hasModifier && w.hasTtk && w.rpm > 0) {
+          const modStats = calculateStats(effectiveDmg, w.rpm, bonusHp);
+          a1Ttk = modStats.a1.ttk; a1Shots = modStats.a1.shots; a1Dbno = modStats.a1.isDbno;
+          a2Ttk = modStats.a2.ttk; a2Shots = modStats.a2.shots; a2Dbno = modStats.a2.isDbno;
+          a3Ttk = modStats.a3.ttk; a3Shots = modStats.a3.shots; a3Dbno = modStats.a3.isDbno;
+        }
+
+        const dpsVal = effectiveDps !== null ? effectiveDps : (w.rpm > 0 ? (effectiveDmg * w.rpm) / 60 : -1);
+        return {
+          ...w,
+          displayDmg: effectiveDmg,
+          displayDps: effectiveDps,
+          a1Ttk, a1Shots, a1Dbno,
+          a2Ttk, a2Shots, a2Dbno,
+          a3Ttk, a3Shots, a3Dbno,
+          dpsSort: dpsVal,
+          ttk1: w.hasTtk && a1Ttk !== null ? a1Ttk : Infinity,
+          ttk2: w.hasTtk && a2Ttk !== null ? a2Ttk : Infinity,
+          ttk3: w.hasTtk && a3Ttk !== null ? a3Ttk : Infinity,
+        };
+      });
+
+      if (currentTab === 'ATK') {
+        enriched = enriched.filter(w => w.side === 'ATK');
+      } else if (currentTab === 'DEF') {
+        enriched = enriched.filter(w => w.side === 'DEF');
+      }
+
+      if (search) {
+        enriched = enriched.filter(w =>
+          w.name.toLowerCase().includes(search) ||
+          w.ops.toLowerCase().includes(search)
+        );
+      }
+
+      const isDefaultOrder = (sortKey === 'default' && !search);
+
+      if (sortKey === 'default') {
+        enriched.sort((a, b) => a.order - b.order);
+      } else if (sortKey === 'name') {
+        enriched.sort((a, b) => {
+          const diff = a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
+          return sortAsc ? diff : -diff;
+        });
+      } else if (sortKey === 'dps') {
+        enriched.sort((a, b) => {
+          const diff = a.dpsSort - b.dpsSort;
+          return sortAsc ? diff : -diff;
+        });
+      } else {
+        enriched.sort((a, b) => {
+          const valA = a[sortKey];
+          const valB = b[sortKey];
+          if (valA === Infinity && valB === Infinity) return a.order - b.order;
+          if (valA === Infinity) return 1;
+          if (valB === Infinity) return -1;
+          const diff = valA - valB;
+          return sortAsc ? diff : -diff;
+        });
+      }
+
+      const tbody = document.getElementById('weaponTableBody');
+      if (enriched.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="10" class="py-12 text-center text-slate-500 text-sm">
+              ${weaponsData.length === 0 ? 'Google Sheets에서 데이터를 불러오는 중입니다...' : '조건에 일치하는 무기가 없습니다. 검색어 또는 진영 필터를 확인해 주세요.'}
+            </td>
+          </tr>
+        `;
+        return;
+      }
+
+      tbody.innerHTML = enriched.map(w => {
+        const showOpIdentity = isDefaultOrder ? w.isFirstOfOp : true;
+        const rowBorderClass = (isDefaultOrder && w.isLastOfOp) ? 'op-group-end' : '';
+
+        const sideCellHtml = showOpIdentity
+          ? (w.side === 'ATK'
+              ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-bold bg-sky-500/15 text-[#38bdf8] border border-sky-500/30">공격</span>`
+              : `<span class="inline-flex items-center px-2.5 py-0.5 rounded text-[11px] font-bold bg-rose-500/15 text-[#f43f5e] border border-rose-500/30">수비</span>`)
+          : '';
+
+        const opCellHtml = showOpIdentity && w.ops
+          ? `<div class="flex flex-col items-center justify-center py-0.5">
+               ${w.opsImg
+                 ? `<img src="${w.opsImg}" alt="${w.ops}" referrerpolicy="no-referrer" data-fallback="${w.opsFallbackImg || ''}" onerror="if(this.dataset.fallback && this.src !== this.dataset.fallback){this.src=this.dataset.fallback;}else{this.style.display='none';}" class="w-11 h-11 object-contain rounded-lg mb-1" />`
+                 : ''}
+               <span class="text-xs font-extrabold tracking-wide text-white uppercase">${w.ops}</span>
+             </div>`
+          : '';
+
+        const formatTtkCell = (hasTtk, ttk, shots, isDbno) => {
+          if (!hasTtk || ttk === null || shots === null) return '';
+          return `
+            <div class="inline-flex flex-col items-center">
+              <span class="font-mono font-bold text-slate-100">${ttk.toFixed(3)}s</span>
+              <div class="flex items-center gap-1 mt-0.5">
+                <span class="text-[11px] font-mono text-slate-400">${shots}발</span>
+                ${isDbno ? `<span class="px-1.5 py-0.2 rounded bg-amber-500/20 text-[#facc15] border border-amber-500/40 text-[10px] font-bold">부상</span>` : ''}
+              </div>
+            </div>
+          `;
+        };
+
+        const dpsText = w.displayDps !== null ? w.displayDps.toFixed(1) : '';
+
+        return `
+          <tr class="hover:bg-[#1e293b]/50 transition ${rowBorderClass}">
+            <td class="py-3 px-4 text-center whitespace-nowrap align-middle">${sideCellHtml}</td>
+            <td class="py-3 px-4 text-center whitespace-nowrap align-middle border-r border-[#1e293b]/60">${opCellHtml}</td>
+            <td class="py-3 px-4 whitespace-nowrap align-middle">
+              <span class="font-bold text-white">${w.name}</span>
+            </td>
+            <td class="py-3 px-3 text-right font-mono font-semibold text-slate-200 align-middle">${w.displayDmg}</td>
+            <td class="py-3 px-3 text-right font-mono text-slate-300 align-middle">${w.rpmLabel}</td>
+            <td class="py-3 px-3 text-right font-mono font-extrabold text-[#38bdf8] align-middle">${dpsText}</td>
+            <td class="py-3 px-3 text-center align-middle">${formatTtkCell(w.hasTtk, w.a1Ttk, w.a1Shots, w.a1Dbno)}</td>
+            <td class="py-3 px-3 text-center align-middle">${formatTtkCell(w.hasTtk, w.a2Ttk, w.a2Shots, w.a2Dbno)}</td>
+            <td class="py-3 px-3 text-center align-middle">${formatTtkCell(w.hasTtk, w.a3Ttk, w.a3Shots, w.a3Dbno)}</td>
+            <td class="py-3 px-4 text-center whitespace-nowrap align-middle">
+              <div class="inline-flex items-center gap-1">
+                <button onclick="applyRookToSimulator('${w.id}')" class="px-2 py-1 rounded bg-amber-500/15 hover:bg-amber-500 text-[#facc15] hover:text-[#0b0f19] border border-amber-500/30 text-[11px] font-mono font-bold transition" title="시뮬레이터에 ROOK 방탄판(+20HP) 적용">ROOK</button>
+                <button onclick="setVsWeapon('A', '${w.id}')" class="px-2 py-1 rounded bg-sky-500/15 hover:bg-[#38bdf8] text-[#38bdf8] hover:text-[#0b0f19] border border-sky-500/30 text-[11px] font-mono font-bold transition" title="1:1 비교기 A슬롯 지정">A</button>
+                <button onclick="setVsWeapon('B', '${w.id}')" class="px-2 py-1 rounded bg-rose-500/15 hover:bg-[#f43f5e] text-[#f43f5e] hover:text-white border border-rose-500/30 text-[11px] font-mono font-bold transition" title="1:1 비교기 B슬롯 지정">B</button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // =========================================================================
+    // 8. 토스트 알림 & 초기화
+    // =========================================================================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      const colorClass = type === 'warn'
+        ? 'bg-rose-950/95 border-rose-500/50 text-rose-200'
+        : 'bg-slate-900/95 border-sky-500/50 text-sky-100';
+
+      toast.className = `pointer-events-auto px-4 py-3 rounded-xl border shadow-2xl text-xs font-medium backdrop-blur-md transition-all duration-300 ${colorClass}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translateY(8px)';
+        setTimeout(() => toast.remove(), 300);
+      }, 3000);
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      runCalculator();
+      setTab('ALL');
+      fetchAllSheets(false);
+    });
+  </script>
+</body>
+</html>
